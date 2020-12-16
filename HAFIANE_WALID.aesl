@@ -1,0 +1,386 @@
+<!DOCTYPE aesl-source>
+<network>
+
+
+<!--list of global events-->
+
+
+<!--list of constants-->
+<constant value="250" name="VIT_MAX"/>
+
+
+<!--show keywords state-->
+<keywords flag="true"/>
+
+
+<!--node thymio-II-->
+<node nodeId="1" name="thymio-II">
+
+# realiser par HAFIANE Walid 
+
+
+#*
+ * Fichier définissant le contrôle d'un Thymio 2
+ *
+ * À vous de jouer :
+ * - normalisation des données et 
+ * - calcul des vitesses de roues souhaitées
+ *
+ *#
+ 
+var dismur=0
+var mindismur=30
+var Mcmpt =0
+var Mderection=0
+var Mnbitmax=30
+var rand1
+var rand2 
+ 
+#############
+ 
+var vitGauche=0  
+var vitDroite=0
+var centre_dis=0
+
+var sommefactG=0
+var sommefactD=0
+#valeur maximale de capteur 
+var capt_MAX=4500
+
+#distence minimale a l'obstacle ( la dist minimale pour tourner sans besoin de reculer ) ( la valeur est entre 0 et Vitmax )
+var mindis=10
+
+#distence ou en passe au mode cue sac [0,Vitmax]
+var turndis=40 
+
+# facteur a multiplier pour chaque capteur
+# ca ressamble a vecteur W dans un perseptron 
+var facteur_capteur[]=[1,2,1,2,1] 
+
+# un vecteur pour afficher la vit de robot avec le circle des led 
+var ledsC[]=[0,0,0,0,0,0,0,0]
+
+# une variable pour stocker l'etat de robot ( l'action )
+# pour afficher ensuite la couleur assosié a cette action
+var etat_led=0
+
+# pour les boucle et pour calculer la moy de vit 
+# pour afficher la vit de robot
+var i=0
+var moyvit
+
+############
+
+# numéro du capteur
+var cpt
+# donnée capteur normalisée
+var npi[7]
+# coupe le timer 0 
+var comp=1
+timer.period[0] = 0
+timer.period[1] = 0
+
+
+
+#########  Boucle 1  eviter les obs ###########
+
+onevent timer0
+facteur_capteur=[4,1,0,1,4] 
+sommefactG=facteur_capteur[0]+facteur_capteur[1]+facteur_capteur[2]
+sommefactD=facteur_capteur[3]+facteur_capteur[4]+facteur_capteur[2]
+# Les capteurs vont de 0 à 6, de l'avt G à l'arr D
+for cpt in 0:6 do
+	# vous pouvez normaliser la valeur
+	# tout les valeur capteur sont entre 0 et VIT_MAX
+	npi[cpt] = prox.horizontal[cpt]/(capt_MAX/VIT_MAX)
+end	
+# mettez ici vos calculs
+
+# la dis a l'obs en face     
+centre_dis=
+(((VIT_MAX-npi[2])*3)+(VIT_MAX-npi[1])+(VIT_MAX-npi[3])+(VIT_MAX-npi[0])+(VIT_MAX-npi[4]))/7
+
+
+	
+if centre_dis>= turndis then
+	
+	## calcule de la vit de chaque moteur dans le cas normale 
+	## comp braitenberg ( non sere et non cue sac .... )
+	
+	# vit_max - la moyenne pondere des valeur des capteur gauche
+	# vit_max - (parie gauche  de vecteur capt normaliser * 
+	# partie gauche vecteur facteur_capteur / somme de fact) 
+	vitGauche=VIT_MAX-((
+	npi[3]*facteur_capteur[3]
+	+npi[4]*facteur_capteur[4]
+	+npi[2]*facteur_capteur[2]
+	)/sommefactD )
+	
+	# meme calcule a droite 
+	vitDroite=VIT_MAX-((
+	npi[0]*facteur_capteur[0]
+	+npi[1]*facteur_capteur[1]
+	+npi[2]*facteur_capteur[2]
+	)/sommefactG)
+	
+	etat_led=0 # etat de braitenberg machine
+	
+	
+### le vehicule est proche a l'obstacle en face 
+### il faut tourner ou faire d'abord un marche arriere 
+### si trop serre 
+else
+	
+	 ## on a suffisament espace pour tourner
+	 ## cette cond pour les cas :
+	 ## cue de sac , un obs centre et un ( d ou g )
+	 if (centre_dis>mindis) then
+	 # tourn a gauche 
+	 		 vitDroite=VIT_MAX
+	         vitGauche=-VIT_MAX  
+	 	     etat_led=1 # etat de turn sur place
+	 
+	 # marche arriere dans le cas tres serre
+	 # on ajoute une petite valeur aliatoire pour enpecher les 
+	 # cas de balancement 
+	 else   
+	        call math.rand(rand1)
+	        call math.rand(rand2)
+	        rand1=abs(rand1)%20
+	        rand2=abs(rand2)%20
+	        vitDroite=-VIT_MAX+rand1
+	        vitGauche=-VIT_MAX+rand2
+	        etat_led=2 # etat de marche arriere   
+ 	
+end
+end   
+
+
+# vitesses souhaitées (entre -500 et 500)
+motor.left.target  = vitGauche
+motor.right.target = vitDroite
+
+# affichage ( led rgb ) 
+if (etat_led==0) then
+ call leds.top(0,32,0)
+end
+
+if (etat_led==1) then
+  call leds.top(0,0,32) 
+end
+  
+if (etat_led==2) then
+  call leds.top(32,0,0) 
+end 
+
+# affichage de vit par le cercle des led 
+moyvit=(vitGauche+vitDroite)/4 # calcule vit moy
+for i in 0:7 do   # alumer les n led corsp a cette vit
+ if moyvit >= (VIT_MAX/8) * (i+1) then
+ 	ledsC[i]=32
+ else
+ 	ledsC[i]=0
+ end
+end
+
+call leds.circle(ledsC[0],ledsC[1],ledsC[2],ledsC[3],ledsC[4],ledsC[5],ledsC[6],ledsC[7]) 
+
+
+#########  Boucle 2 suivi de mur ###########
+ 
+onevent timer1
+
+if (comp==1) then
+
+for cpt in 0:6 do
+	# vous pouvez normaliser la valeur
+	# tout les valeur capteur sont entre 0 et VIT_MAX
+	npi[cpt] = prox.horizontal[cpt]/(capt_MAX/VIT_MAX)
+end
+
+call math.min(dismur,VIT_MAX-npi[0],VIT_MAX-npi[4])
+
+if dismur>mindismur then
+  if npi[0]==0 and npi[4]==0 and npi[2]==0 and Mcmpt>0 then
+      if Mderection==1 then
+      	vitGauche=-VIT_MAX
+        vitDroite=VIT_MAX
+      else
+        vitGauche=VIT_MAX
+        vitDroite=-VIT_MAX
+      end
+      Mcmpt=Mcmpt-1 
+      etat_led=2
+  else
+    vitGauche=VIT_MAX-npi[0]
+    vitDroite=VIT_MAX-npi[4]
+    etat_led=0
+  end  
+    
+else 
+ if npi[2]!= 0 then
+ 	
+    if(npi[0]+npi[1]>npi[4]+npi[3]) then 
+      vitGauche=VIT_MAX
+      vitDroite=-VIT_MAX
+      Mcmpt=Mnbitmax
+      Mderection=1
+    else
+      vitGauche=-VIT_MAX
+      vitDroite=VIT_MAX
+      Mcmpt=Mnbitmax
+      Mderection=2  
+    end
+    etat_led=3
+ else
+   vitGauche=VIT_MAX
+   vitDroite=VIT_MAX 
+   etat_led=1      
+ end        
+
+end	
+
+
+
+else
+
+if (comp==2) then
+############### suvi de ligne ############
+ vitDroite=VIT_MAX
+ vitGauche=VIT_MAX 
+if(prox.ground.reflected[1]-prox.ground.reflected[0]>10) then
+   vitDroite=VIT_MAX 
+   vitGauche=-VIT_MAX
+end   
+if(prox.ground.reflected[0]-prox.ground.reflected[1]>10) then
+   vitDroite=-VIT_MAX   
+   vitGauche=VIT_MAX
+end   
+
+else
+############### simple evite obs ############
+facteur_capteur=[1,1,0,1,1] 
+sommefactG=facteur_capteur[0]+facteur_capteur[1]+facteur_capteur[2]
+sommefactD=facteur_capteur[3]+facteur_capteur[4]+facteur_capteur[2]
+for cpt in 0:6 do
+	# tout les valeur capteur sont entre 0 et VIT_MAX
+	npi[cpt] = prox.horizontal[cpt]/(capt_MAX/VIT_MAX)
+
+etat_led=0 # etat de braitenberg machine
+#calcule gauche 	
+vitGauche=VIT_MAX-((
+npi[3]*facteur_capteur[3]
++npi[4]*facteur_capteur[4]
++npi[2]*facteur_capteur[2]
+)/sommefactD )
+	
+# meme calcule a droite 
+vitDroite=VIT_MAX-((
+npi[0]*facteur_capteur[0]
++npi[1]*facteur_capteur[1]
++npi[2]*facteur_capteur[2]
+)/sommefactG)
+	
+if(vitDroite&lt;40 and vitGauche&lt;40)then
+	vitGauche=VIT_MAX
+	vitDroite=-VIT_MAX
+	etat_led=1 # tourn sur plase 
+end
+	
+	
+# affichage ( led rgb ) 
+if (etat_led==0) then
+	 call leds.top(0,32,0)
+end
+	
+if (etat_led==1) then
+     call leds.top(0,0,32) 
+end
+
+
+# affichage de vit par le cercle des led 
+moyvit=(vitGauche+vitDroite)/4 # calcule vit moy
+for i in 0:7 do   # alumer les n led corsp a cette vit
+ if moyvit >= (VIT_MAX/8) * (i+1) then
+ 	ledsC[i]=32
+ else
+ 	ledsC[i]=0
+ end
+end
+
+call leds.circle(ledsC[0],ledsC[1],ledsC[2],ledsC[3],ledsC[4],ledsC[5],ledsC[6],ledsC[7]) 		
+	
+end
+
+end
+
+end		
+    
+motor.left.target  = vitGauche
+motor.right.target = vitDroite
+
+# affichage ( led ) 
+if (etat_led==0) then
+ call leds.top(0,32,0)
+end
+
+if (etat_led==1) then
+  call leds.top(0,0,32) 
+end
+  
+if (etat_led==2) then
+  call leds.top(32,0,0) 
+end 
+
+if (etat_led==3) then
+  call leds.top(32,32,0) 
+end
+# affichage de vit par le cercle des led 
+moyvit=(vitGauche+vitDroite)/2 # calcule vit moy
+for i in 0:7 do   # alumer les n led corsp a cette vit
+ if moyvit >= (VIT_MAX/8) * (i+1) then
+ 	ledsC[i]=32
+ else
+ 	ledsC[i]=0
+ end
+end
+
+call leds.circle(ledsC[0],ledsC[1],ledsC[2],ledsC[3],ledsC[4],ledsC[5],ledsC[6],ledsC[7]) 
+
+
+
+# Appuyer sur le bouton avant lance la boucle 1
+# eviter les obs 
+onevent button.forward
+timer.period[1]=0
+timer.period[0] = 100  # lance la boucle 1
+
+# Appuyer sur le bouton arriere lance la boucle 2
+# suivi de mur 
+onevent button.backward
+comp=1
+timer.period[0]=0
+timer.period[1] = 100  # lance la boucle 2 comp1
+
+# Appuyer sur le bouton arriere lance la boucle 3
+# suivi de ligne
+onevent button.left
+comp=2
+timer.period[0]=0
+timer.period[1] = 100  # lance la boucle 2 comp2
+
+onevent button.right
+comp=3
+timer.period[0]=0
+timer.period[1] = 100  # lance la boucle 2 comp3
+
+# Appuyer sur le bouton central arrête le robot
+onevent button.center
+timer.period[0] = 0         # stoppe le timer 0
+timer.period[1] = 0  
+motor.left.target  = 0      # arrête le robot
+motor.right.target = 0
+</node>
+
+
+</network>
